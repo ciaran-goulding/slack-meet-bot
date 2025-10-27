@@ -56,7 +56,7 @@ exports.handler = async (event) => {
     const meetLink = "https://meet.google.com/new";
 
     // Customize the message text
-    let messageText = `A new meeting for *${text}* was started by @${userName}!`;
+    let messageText = `A new meeting was started by @${userName}!`;
     if (text) {
       // Use the text from the command as a meeting title
       messageText = `Here's the Google Meet link for: *${text}*`;
