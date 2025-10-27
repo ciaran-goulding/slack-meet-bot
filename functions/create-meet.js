@@ -53,7 +53,7 @@ exports.handler = async (event) => {
     const text = params.get('text'); 
 
     // This link auto-generates a new, unique meeting
-    const meetLink = "https://meet.google.com/new";
+    const meetLink = "https://meet.google.com/hdw-uutp-kty";
 
     // Customize the message text
     let messageText = `A new meeting was started by @${userName}!`;
