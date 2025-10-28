@@ -1,74 +1,123 @@
-// This 'crypto' library is built into Node.js, so no 'npm install' is needed.
+// File: netlify/functions/create-meet.js
+
 const crypto = require('crypto');
+const { google } = require('googleapis'); // <-- NEW: Google API library
 
-exports.handler = async (event) => {
-  // --- 1. Security: Verify the request is from Slack ---
-  
-  // Get the Slack signing secret from your Netlify environment variables
+// --- Helper Function: Verify Slack Request ---
+// (This is your existing security code)
+function verifyRequest(event) {
   const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
-  if (!slackSigningSecret) {
-    console.error('SLACK_SIGNING_SECRET is not set in environment variables.');
-    return { statusCode: 500, body: 'Server configuration error.' };
-  }
-
-  // Get the signature and timestamp from the request headers
   const timestamp = event.headers['x-slack-request-timestamp'];
   const slackSignature = event.headers['x-slack-signature'];
-  const requestBody = event.body; // This is the raw string body
+  const requestBody = event.body;
 
-  // Check for replay attacks: timestamp must be < 5 minutes old
   const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
   if (timestamp < fiveMinutesAgo) {
-    console.warn('Old timestamp received. Ignoring request.');
-    return { statusCode: 403, body: 'Request timestamp is too old.' };
+    throw new Error('Request timestamp is too old.');
   }
 
-  // Create the 'basestring' to sign
   const baseString = `v0:${timestamp}:${requestBody}`;
-
-  // Create our own signature using the secret
   const hmac = crypto.createHmac('sha256', slackSigningSecret);
   hmac.update(baseString);
   const mySignature = `v0=${hmac.digest('hex')}`;
 
-  // Compare our signature with Slack's using a timing-safe method
-  try {
-    if (!crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(slackSignature))) {
-      console.warn('Signature verification failed.');
-      return { statusCode: 403, body: 'Slack signature verification failed.' };
-    }
-  } catch (e) {
-     console.warn('Error during signature comparison:', e.message);
-     return { statusCode: 403, body: 'Slack signature verification failed.' };
+  if (!crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(slackSignature))) {
+    throw new Error('Slack signature verification failed.');
   }
-  
-  // --- 2. Main Logic: Create and Send the Meet Link ---
-  // If we reach here, the request is verified!
+}
+
+// --- NEW: Helper Function to Create a Meet Link ---
+async function createGoogleMeet(text) {
+  // 1. Get credentials from Netlify environment
+  const calendarId = process.env.CALENDAR_ID;
+  const credsBase64 = process.env.GCP_CREDS_BASE64;
+
+  if (!calendarId || !credsBase64) {
+    throw new Error('Server config error: Missing CALENDAR_ID or GCP_CREDS_BASE64');
+  }
+
+  // 2. Decode the Base64 key
+  const decodedKey = Buffer.from(credsBase64, 'base64').toString('utf8');
+  const credentials = JSON.parse(decodedKey);
+
+  // 3. Authenticate our "robot"
+  const auth = new google.auth.JWT(
+    credentials.client_email,
+    null,
+    credentials.private_key,
+    ['https://www.googleapis.com/auth/calendar.events']
+  );
+
+  const calendar = google.calendar({ version: 'v3', auth });
+
+  // 4. Create a calendar event for right now
+  const eventStartTime = new Date();
+  const eventEndTime = new Date();
+  eventEndTime.setMinutes(eventStartTime.getMinutes() + 60); // 1-hour meeting
+
+  const event = {
+    summary: text || 'New Slack Meeting',
+    description: 'Meeting created by the Slack /googlemeet command.',
+    start: {
+      dateTime: eventStartTime.toISOString(),
+      timeZone: 'UTC',
+    },
+    end: {
+      dateTime: eventEndTime.toISOString(),
+      timeZone: 'UTC',
+    },
+    // This is the magic part that creates the Meet link
+    conferenceData: {
+      createRequest: {
+        requestId: `slack-meet-${Date.now()}`,
+        conferenceSolutionKey: {
+          type: 'hangoutsMeet',
+        },
+      },
+    },
+  };
+
+  // 5. Insert the event into our "Slack Bot Meetings" calendar
+  const res = await calendar.events.insert({
+    calendarId: calendarId,
+    resource: event,
+    conferenceDataVersion: 1,
+  });
+
+  // 6. Return the new meeting link
+  return res.data.hangoutLink;
+}
+
+// --- Main Function Handler ---
+exports.handler = async (event) => {
+  try {
+    // 1. Verify the request is from Slack (Security First!)
+    verifyRequest(event);
+
+  } catch (error) {
+    console.warn('Slack verification failed:', error.message);
+    return { statusCode: 403, body: 'Slack signature verification failed.' };
+  }
 
   try {
-    // Parse the incoming Slack data (it's URL-encoded)
-    const params = new URLSearchParams(requestBody);
+    // 2. Parse Slack data
+    const params = new URLSearchParams(event.body);
     const userName = params.get('user_name') || 'there';
-    // This 'text' is any text typed after the /meet command
-    const text = params.get('text'); 
+    const text = params.get('text'); // "Team Meeting"
 
-    // This link auto-generates a new, unique meeting
-    const meetLink = "https://meet.google.com/hdw-uutp-kty";
+    //
+    // 3. NEW: Call the Google API to create a unique link
+    //
+    const meetLink = await createGoogleMeet(text);
 
-    // Customize the message text
-    let messageText = `A new meeting was started by @${userName}!`;
+    // 4. Create the Slack message
+    let messageText = `Here's your new Google Meet link:`;
     if (text) {
-      // Use the text from the command as a meeting title
       messageText = `Here's the Google Meet link for: *${text}*`;
     }
-
-    // This is the JSON payload we send back to Slack
+    
     const slackResponse = {
-      // 
-      // THIS IS THE KEY CHANGE: Makes the message visible to everyone
-      //
       response_type: 'in_channel',
-      
       blocks: [
         {
           type: 'section',
@@ -87,8 +136,8 @@ exports.handler = async (event) => {
                 text: 'Join Meeting',
                 emoji: true,
               },
-              url: meetLink, 
-              style: 'primary', // Makes the button green
+              url: meetLink, // <-- Use the new dynamic link
+              style: 'primary',
               accessibility_label: 'Button to join the Google Meet call',
             },
           ],
@@ -99,17 +148,19 @@ exports.handler = async (event) => {
     // 5. Send the JSON response back to Slack
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(slackResponse),
     };
 
   } catch (error) {
-    console.error('Error processing Slack command:', error);
+    console.error('Error in main handler:', error);
+    // Send a user-facing error message back to Slack
     return {
-      statusCode: 500,
-      body: 'Something went wrong while processing your request.',
+      statusCode: 200, // Slack needs a 200, even for an error
+      body: JSON.stringify({
+        response_type: 'ephemeral',
+        text: `Sorry, I couldn't create a meeting. Error: ${error.message}`,
+      }),
     };
   }
 };
