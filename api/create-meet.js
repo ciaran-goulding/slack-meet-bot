@@ -106,6 +106,12 @@ async function createGoogleMeet(text) {
   // GCP_CREDS_BASE64 is the base64-encoded JSON key file for the Service Account.
   const credsBase64 = process.env.GCP_CREDS_BASE64;
 
+  // --- START: DEBUG LOGS ---
+  // Let's check if the variables are being loaded at all.
+  console.log('CALENDAR_ID (first 10):', calendarId ? calendarId.substring(0, 10) : 'CALENDAR_ID IS UNDEFINED');
+  console.log('GCP_CREDS_BASE64 (first 10):', credsBase64 ? credsBase64.substring(0, 10) : 'CREDS_BASE64 IS UNDEFINED');
+  // --- END: DEBUG LOGS ---
+
   if (!calendarId || !credsBase64) {
     throw new Error('Server configuration error: Missing CALENDAR_ID or GCP_CREDS_BASE64 env variables.');
   }
