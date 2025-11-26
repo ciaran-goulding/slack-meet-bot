@@ -1,6 +1,5 @@
 import { google } from 'googleapis';
 import crypto from 'crypto';
-// REMOVED: import axios from 'axios'; <--- We don't need this anymore!
 
 export const config = {
   api: { bodyParser: false },
@@ -44,7 +43,6 @@ async function getSlackName(userId) {
   }
 
   try {
-    // We use the built-in 'fetch' instead of axios
     const params = new URLSearchParams({ user: userId });
     const response = await fetch(`https://slack.com/api/users.info?${params}`, {
       method: 'GET',
@@ -57,8 +55,7 @@ async function getSlackName(userId) {
     const data = await response.json();
 
     if (data.ok && data.user) {
-      const realName = data.user.profile.real_name;
-      return realName;
+      return data.user.profile.real_name;
     } else {
       console.error("❌ Slack API Error:", data.error);
       return null;
@@ -71,23 +68,37 @@ async function getSlackName(userId) {
 
 async function createGoogleMeet(text, userId, defaultHandle) {
   let rawTitle;
+  let suffix = "";
   
+  // --- LOGIC UPDATE ---
   if (text && text.trim().length > 0) {
+    // Case A: User typed a title. Use it exactly (no random numbers).
     rawTitle = text;
   } else {
+    // Case B: User typed nothing.
+    // We MUST add a random suffix so they don't get stuck in the same room every time.
     const realName = await getSlackName(userId);
     const displayName = realName || defaultHandle;
-    rawTitle = `${displayName}'s instant meeting`;
+    
+    // Create a random 4-digit code (e.g., 4821)
+    const randomCode = Math.floor(1000 + Math.random() * 9000);
+    
+    rawTitle = `${displayName}'s meeting`;
+    suffix = `-${randomCode}`; // We will append this to the URL only
   }
 
+  // --- SANITIZE ---
   const cleanSlug = rawTitle.toLowerCase()
+    .replace(/['’]s/g, '-s')    
     .replace(/['’]/g, '')       
     .replace(/\s+/g, '-')       
     .replace(/[^a-z0-9-]/g, '') 
     .replace(/-+/g, '-');       
 
-  const meetLink = `https://meet.google.com/lookup/${cleanSlug}`;
+  // Append suffix (if any) to the URL
+  const meetLink = `https://meet.google.com/lookup/${cleanSlug}${suffix}`;
   
+  // --- CALENDAR ---
   try {
     const calendarId = process.env.CALENDAR_ID;
     const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
@@ -98,11 +109,10 @@ async function createGoogleMeet(text, userId, defaultHandle) {
       try {
         privateKey = Buffer.from(encodedPrivateKey, 'base64').toString('utf8');
       } catch (e) {
-        console.error("Key Decode Error (continuing without calendar):", e.message);
+        console.error("Key Decode Error:", e.message);
       }
 
       if (privateKey) {
-        // Fix newlines if needed
         if (privateKey.includes('\\n')) {
           privateKey = privateKey.replace(/\\n/g, '\n');
         }
@@ -122,7 +132,7 @@ async function createGoogleMeet(text, userId, defaultHandle) {
         await calendar.events.insert({
           calendarId: calendarId,
           resource: {
-            summary: rawTitle, 
+            summary: rawTitle, // Calendar shows readable title ("Ciaran's meeting")
             description: `Meeting created by Slack.\nJoin: ${meetLink}`,
             location: meetLink,
             start: { dateTime: eventStartTime.toISOString(), timeZone: 'UTC' },
@@ -159,7 +169,7 @@ export default async (request, response) => {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "Click below to join:"
+            text: "Click below to join your Google Meet meeting"
           }
         },
         {
