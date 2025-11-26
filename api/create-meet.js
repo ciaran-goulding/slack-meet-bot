@@ -36,22 +36,22 @@ function verifyRequest(headers, rawBody) {
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKeyString = process.env.GOOGLE_PRIVATE_KEY;
+  // This is now the SAFE BASE64 string
+  const encodedPrivateKey = process.env.GOOGLE_PRIVATE_KEY; 
 
-  // --- DEBUGGING: Tell us exactly what is missing ---
-  const missingVars = [];
-  if (!calendarId) missingVars.push('CALENDAR_ID');
-  if (!clientEmail) missingVars.push('GOOGLE_CLIENT_EMAIL');
-  if (!privateKeyString) missingVars.push('GOOGLE_PRIVATE_KEY');
-
-  if (missingVars.length > 0) {
-    throw new Error(`Missing Vercel Variables: ${missingVars.join(', ')}`);
+  if (!calendarId || !clientEmail || !encodedPrivateKey) {
+    throw new Error('Missing config variables');
   }
-  // --------------------------------------------------
 
-  const privateKey = privateKeyString
-    .replace(/\\n/g, '\n')
-    .replace(/"/g, '');
+  // --- THE DECODE FIX ---
+  // We unwrap the safe string back into the real key with newlines
+  let privateKey;
+  try {
+    privateKey = Buffer.from(encodedPrivateKey, 'base64').toString('utf8');
+  } catch (e) {
+    throw new Error('Failed to decode Private Key');
+  }
+  // ----------------------
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -99,6 +99,7 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     const text = params.get('text');
+
     const meetLink = await createGoogleMeet(text);
 
     let messageText = text ? `Here's the Google Meet link for: *${text}*` : `Here's your new Google Meet link:`;
