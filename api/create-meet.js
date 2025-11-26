@@ -36,22 +36,28 @@ function verifyRequest(headers, rawBody) {
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  // This is now the SAFE BASE64 string
   const encodedPrivateKey = process.env.GOOGLE_PRIVATE_KEY; 
 
   if (!calendarId || !clientEmail || !encodedPrivateKey) {
     throw new Error('Missing config variables');
   }
 
-  // --- THE DECODE FIX ---
-  // We unwrap the safe string back into the real key with newlines
-  let privateKey;
+  // 1. Decode the Base64 string back to text
+  let decodedKey;
   try {
-    privateKey = Buffer.from(encodedPrivateKey, 'base64').toString('utf8');
+    decodedKey = Buffer.from(encodedPrivateKey, 'base64').toString('utf8');
   } catch (e) {
     throw new Error('Failed to decode Private Key');
   }
-  // ----------------------
+
+  // 2. THE FIX: Convert literal "\n" characters into REAL newlines
+  // OpenSSL requires the key to look like a block of text, not one long line.
+  const privateKey = decodedKey.replace(/\\n/g, '\n');
+
+  // Debug Log (Safe - checks format without leaking key)
+  console.log("Key Format Check:");
+  console.log("Starts correctly?", privateKey.startsWith("-----BEGIN PRIVATE KEY-----"));
+  console.log("Has real newlines?", privateKey.includes("\n"));
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
