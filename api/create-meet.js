@@ -35,29 +35,26 @@ function verifyRequest(headers, rawBody) {
 
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
-  const rawCreds = process.env.GCP_CREDS_BASE64; // Raw JSON
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+  const privateKeyString = process.env.GOOGLE_PRIVATE_KEY;
 
-  if (!calendarId || !rawCreds) throw new Error('Missing config');
-
-  let credentials;
-  try {
-    credentials = JSON.parse(rawCreds);
-  } catch (e) {
-    throw new Error('JSON Parse Error: Check GCP_CREDS_BASE64');
+  if (!calendarId || !clientEmail || !privateKeyString) {
+    throw new Error('Missing config: Check CALENDAR_ID, GOOGLE_CLIENT_EMAIL, and GOOGLE_PRIVATE_KEY');
   }
 
-  // --- THE FIX ---
-  // Ensure private_key has real newlines, not string literals
-  // This logic checks if the key contains the literal string "\n" and replaces it with real line breaks
-  const key = credentials.private_key;
-  const privateKey = key.includes('\\n') ? key.replace(/\\n/g, '\n') : key;
+  // --- THE FINAL KEY FIX ---
+  // Vercel turns newlines into literal "\n" characters. We must turn them back.
+  // We also remove any accidental quotes if they were pasted in.
+  const privateKey = privateKeyString
+    .replace(/\\n/g, '\n')   // Convert literal \n to real newlines
+    .replace(/"/g, '');      // Remove any extra quotes
 
-  console.log("Key Check - First 30 chars:", privateKey.substring(0, 30));
-  // ----------------
+  console.log("Using Email:", clientEmail); 
+  // -------------------------
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
-      client_email: credentials.client_email,
+      client_email: clientEmail,
       private_key: privateKey,
     },
     scopes: ['https://www.googleapis.com/auth/calendar.events'],
@@ -101,6 +98,7 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     const text = params.get('text');
+
     const meetLink = await createGoogleMeet(text);
 
     let messageText = text ? `Here's the Google Meet link for: *${text}*` : `Here's your new Google Meet link:`;
