@@ -5,7 +5,6 @@ export const config = {
   api: { bodyParser: false },
 };
 
-// Helper: Get Raw Body
 async function getRawBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -14,7 +13,6 @@ async function getRawBody(req) {
   return Buffer.concat(chunks).toString();
 }
 
-// Helper: Verify Slack Request
 function verifyRequest(headers, rawBody) {
   const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
   const timestamp = headers['x-slack-request-timestamp'];
@@ -35,10 +33,9 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// Helper: Create Meet Link
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
-  const rawCreds = process.env.GCP_CREDS_BASE64; // This is the Raw JSON string
+  const rawCreds = process.env.GCP_CREDS_BASE64; // Raw JSON
 
   if (!calendarId || !rawCreds) throw new Error('Missing config');
 
@@ -49,23 +46,24 @@ async function createGoogleMeet(text) {
     throw new Error('JSON Parse Error: Check GCP_CREDS_BASE64');
   }
 
-  // --- CRITICAL FIX START ---
-  // Fix newlines if they are escaped
-  if (credentials.private_key && credentials.private_key.includes('\\n')) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
-  }
-  
-  // Use GoogleAuth instead of JWT (More robust)
+  // --- THE FIX ---
+  // Ensure private_key has real newlines, not string literals
+  // This logic checks if the key contains the literal string "\n" and replaces it with real line breaks
+  const key = credentials.private_key;
+  const privateKey = key.includes('\\n') ? key.replace(/\\n/g, '\n') : key;
+
+  console.log("Key Check - First 30 chars:", privateKey.substring(0, 30));
+  // ----------------
+
   const auth = new google.auth.GoogleAuth({
-    credentials,
+    credentials: {
+      client_email: credentials.client_email,
+      private_key: privateKey,
+    },
     scopes: ['https://www.googleapis.com/auth/calendar.events'],
   });
-  // --- CRITICAL FIX END ---
 
-  // Get the client
   const client = await auth.getClient();
-
-  // Create the Calendar API instance using that client
   const calendar = google.calendar({ version: 'v3', auth: client });
 
   const eventStartTime = new Date();
@@ -94,7 +92,6 @@ async function createGoogleMeet(text) {
   return res.data.hangoutLink;
 }
 
-// Main Handler
 export default async (request, response) => {
   if (request.method !== 'POST') return response.status(405).send('Method Not Allowed');
 
@@ -104,7 +101,6 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     const text = params.get('text');
-
     const meetLink = await createGoogleMeet(text);
 
     let messageText = text ? `Here's the Google Meet link for: *${text}*` : `Here's your new Google Meet link:`;
