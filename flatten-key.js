@@ -1,22 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 
-// This matches the file you moved earlier
+// Your key file name
 const fileName = 'google-key.json';
-const filePath = path.join(__dirname, fileName);
+const inputPath = path.join(__dirname, fileName);
+const outputPath = path.join(__dirname, 'vercel-secret.txt');
 
 try {
-  // Read the file
-  const fileContent = fs.readFileSync(filePath, 'utf8');
-  
-  // Parse it to JSON, then Stringify it back to a single line
+  const fileContent = fs.readFileSync(inputPath, 'utf8');
   const jsonObject = JSON.parse(fileContent);
   const flatString = JSON.stringify(jsonObject);
   
-  console.log('\n✅ SUCCESS! Copy the RAW JSON string below:');
-  console.log('---------------------------------------------------');
-  console.log(flatString);
-  console.log('---------------------------------------------------');
+  // Write to a file so nothing gets cut off
+  fs.writeFileSync(outputPath, flatString);
+  
+  console.log('\n✅ SUCCESS!');
+  console.log(`I have saved the long secret string to this file:`);
+  console.log(`👉 ${outputPath}`);
+  console.log('\n1. Open that file in Notepad.');
+  console.log('2. Select All (Ctrl+A) and Copy (Ctrl+C).');
+  console.log('3. Paste that into Vercel.');
 } catch (err) {
   console.error('Error:', err.message);
 }

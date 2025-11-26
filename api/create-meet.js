@@ -1,11 +1,8 @@
-// File: api/create-meet.js
 import { google } from 'googleapis';
 import crypto from 'crypto';
 
 export const config = {
-  api: {
-    bodyParser: false,
-  },
+  api: { bodyParser: false },
 };
 
 async function getRawBody(req) {
@@ -42,31 +39,26 @@ function verifyRequest(headers, rawBody) {
 
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
-  const rawCreds = process.env.GCP_CREDS_BASE64; // This is now Raw JSON, not Base64
+  const rawCreds = process.env.GCP_CREDS_BASE64;
 
   if (!calendarId || !rawCreds) {
     throw new Error('Server config error: Missing CALENDAR_ID or GCP_CREDS_BASE64');
   }
 
-  // 1. Parse the JSON directly
   let credentials;
   try {
     credentials = JSON.parse(rawCreds);
   } catch (e) {
-    throw new Error('Failed to parse GCP credentials. Make sure it is valid JSON.');
+    throw new Error('Failed to parse GCP credentials. Check Vercel environment variable.');
   }
 
-  // 2. CRITICAL FIX: Repair the Private Key format
-  // Sometimes environment variables turn real newlines (\n) into string literals (\\n).
-  // This line fixes that, which solves the 401 error.
-  const privateKey = credentials.private_key.replace(/\\n/g, '\n');
+  // Debug log (Safe: only prints email, not the key)
+  console.log(`Authenticating as: ${credentials.client_email}`);
 
-  const auth = new google.auth.JWT(
-    credentials.client_email,
-    null,
-    privateKey, // Use the fixed key
-    ['https://www.googleapis.com/auth/calendar.events']
-  );
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/calendar.events'],
+  });
 
   const calendar = google.calendar({ version: 'v3', auth });
 
@@ -87,6 +79,8 @@ async function createGoogleMeet(text) {
     },
   };
 
+  console.log(`Attempting to create event on calendar: ${calendarId}`);
+  
   const res = await calendar.events.insert({
     calendarId: calendarId,
     resource: event,
@@ -130,7 +124,6 @@ export default async (request, response) => {
               text: { type: 'plain_text', text: 'Join Meeting', emoji: true },
               url: meetLink,
               style: 'primary',
-              accessibility_label: 'Button to join the Google Meet call',
             },
           ],
         },
@@ -143,7 +136,7 @@ export default async (request, response) => {
     console.error('Error handling command:', error);
     return response.status(200).json({
       response_type: 'ephemeral',
-      text: `⚠️ Sorry, I couldn't create the meeting. Error: ${error.message}`,
+      text: `⚠️ Error: ${error.message}`,
     });
   }
 };
