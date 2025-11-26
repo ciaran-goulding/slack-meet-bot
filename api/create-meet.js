@@ -170,7 +170,7 @@ export default async (request, response) => {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "Click below to join your Google Meet meeting"
+            text: "Click below to join:"
           }
         },
         {
