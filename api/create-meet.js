@@ -1,6 +1,7 @@
+// File: api/create-meet.js
 import { google } from 'googleapis';
 import crypto from 'crypto';
-import axios from 'axios';
+import axios from 'axios'; // New library for looking up names
 
 export const config = {
   api: { bodyParser: false },
@@ -34,63 +35,53 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// --- HELPER: Fetch Real Name from Slack ---
+// --- NEW HELPER: Fetch Real Name from Slack ---
 async function getSlackName(userId) {
   const token = process.env.SLACK_BOT_TOKEN;
-  
-  if (!token) {
-    console.error("❌ Error: SLACK_BOT_TOKEN is missing in Vercel vars.");
-    return null;
-  }
+  if (!token) return null; // If no token, we can't look it up
 
   try {
-    console.log(`🔍 Looking up user: ${userId}...`);
-    
     const res = await axios.get('https://slack.com/api/users.info', {
       params: { user: userId },
       headers: { Authorization: `Bearer ${token}` }
     });
 
     if (res.data.ok && res.data.user) {
-      const realName = res.data.user.profile.real_name;
-      console.log(`✅ Found Name: ${realName}`);
-      return realName;
-    } else {
-      // Log the specific error from Slack (e.g. 'missing_scope')
-      console.error("❌ Slack API Error:", res.data.error);
-      return null;
+      // Return the "Real Name" (e.g., "Ciaran Goulding")
+      return res.data.user.profile.real_name || res.data.user.name;
     }
   } catch (error) {
-    console.error("❌ Network Error fetching Slack name:", error.message);
+    console.error("Error fetching Slack name:", error.message);
   }
   return null;
 }
 
 async function createGoogleMeet(text, userId, defaultHandle) {
+  // --- 1. DETERMINE THE TITLE ---
   let rawTitle;
   
   if (text && text.trim().length > 0) {
-    // User typed a specific title
+    // If user typed a name, use it
     rawTitle = text;
   } else {
-    // User left it blank -> Fetch Real Name
+    // If blank, try to find the Real Name
     const realName = await getSlackName(userId);
-    
-    // Fallback logic: Use Real Name if found, otherwise use the handle (2387)
+    // Use Real Name if found, otherwise fall back to the handle (e.g. 2387)
     const displayName = realName || defaultHandle;
+    
     rawTitle = `${displayName}'s instant meeting`;
   }
 
-  // Sanitize for URL (Ciaran Goulding -> ciaran-goulding)
+  // --- 2. SANITIZE FOR URL ---
   const cleanSlug = rawTitle.toLowerCase()
-    .replace(/['’]/g, '')       
-    .replace(/\s+/g, '-')       
-    .replace(/[^a-z0-9-]/g, '') 
-    .replace(/-+/g, '-');       
+    .replace(/['’]/g, '')       // Remove apostrophes
+    .replace(/\s+/g, '-')       // Replace spaces with hyphens
+    .replace(/[^a-z0-9-]/g, '') // Remove special chars
+    .replace(/-+/g, '-');       // Remove double hyphens
 
   const meetLink = `https://meet.google.com/lookup/${cleanSlug}`;
   
-  // Calendar Logging
+  // --- 3. LOG TO CALENDAR ---
   try {
     const calendarId = process.env.CALENDAR_ID;
     const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
@@ -138,9 +129,10 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     const text = params.get('text');
-    const userId = params.get('user_id');
-    const handle = params.get('user_name');
+    const userId = params.get('user_id');     // e.g. U12345
+    const handle = params.get('user_name');   // e.g. 2387
 
+    // Pass ID and Handle to the creator
     const meetLink = await createGoogleMeet(text, userId, handle);
 
     return response.status(200).json({
