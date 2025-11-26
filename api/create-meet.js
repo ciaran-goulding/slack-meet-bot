@@ -98,7 +98,7 @@ export default async (request, response) => {
           text: {
             type: "mrkdwn",
             // UPDATED TEXT HERE
-            text: "Click below to join your Google Meet meeting" 
+            text: "Click below to join:" 
           }
         },
         {
