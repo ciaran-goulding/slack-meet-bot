@@ -38,19 +38,20 @@ async function createGoogleMeet(text) {
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
   const privateKeyString = process.env.GOOGLE_PRIVATE_KEY;
 
-  if (!calendarId || !clientEmail || !privateKeyString) {
-    throw new Error('Missing config: Check CALENDAR_ID, GOOGLE_CLIENT_EMAIL, and GOOGLE_PRIVATE_KEY');
+  // --- DEBUGGING: Tell us exactly what is missing ---
+  const missingVars = [];
+  if (!calendarId) missingVars.push('CALENDAR_ID');
+  if (!clientEmail) missingVars.push('GOOGLE_CLIENT_EMAIL');
+  if (!privateKeyString) missingVars.push('GOOGLE_PRIVATE_KEY');
+
+  if (missingVars.length > 0) {
+    throw new Error(`Missing Vercel Variables: ${missingVars.join(', ')}`);
   }
+  // --------------------------------------------------
 
-  // --- THE FINAL KEY FIX ---
-  // Vercel turns newlines into literal "\n" characters. We must turn them back.
-  // We also remove any accidental quotes if they were pasted in.
   const privateKey = privateKeyString
-    .replace(/\\n/g, '\n')   // Convert literal \n to real newlines
-    .replace(/"/g, '');      // Remove any extra quotes
-
-  console.log("Using Email:", clientEmail); 
-  // -------------------------
+    .replace(/\\n/g, '\n')
+    .replace(/"/g, '');
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -98,7 +99,6 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     const text = params.get('text');
-
     const meetLink = await createGoogleMeet(text);
 
     let messageText = text ? `Here's the Google Meet link for: *${text}*` : `Here's your new Google Meet link:`;
