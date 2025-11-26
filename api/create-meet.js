@@ -89,15 +89,14 @@ export default async (request, response) => {
     const meetLink = await createGoogleMeet(text);
 
     // --- THE UI UPDATE ---
-    // Here is the simplified look you requested
-    return response.status(200).json({
+      return response.status(200).json({
       response_type: 'in_channel',
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            // UPDATED TEXT HERE
+            // TEXT HERE
             text: "Click below to join:" 
           }
         },
