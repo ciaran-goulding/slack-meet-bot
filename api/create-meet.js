@@ -5,6 +5,7 @@ export const config = {
   api: { bodyParser: false },
 };
 
+// Helper: Get Raw Body
 async function getRawBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -13,19 +14,16 @@ async function getRawBody(req) {
   return Buffer.concat(chunks).toString();
 }
 
+// Helper: Verify Slack Request
 function verifyRequest(headers, rawBody) {
   const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
   const timestamp = headers['x-slack-request-timestamp'];
   const slackSignature = headers['x-slack-signature'];
 
-  if (!timestamp || !slackSignature) {
-    throw new Error('Missing Slack signature headers');
-  }
-
+  if (!timestamp || !slackSignature) throw new Error('Missing headers');
+  
   const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
-  if (timestamp < fiveMinutesAgo) {
-    throw new Error('Request timestamp is too old.');
-  }
+  if (timestamp < fiveMinutesAgo) throw new Error('Timestamp too old');
 
   const baseString = `v0:${timestamp}:${rawBody}`;
   const hmac = crypto.createHmac('sha256', slackSigningSecret);
@@ -33,34 +31,42 @@ function verifyRequest(headers, rawBody) {
   const mySignature = `v0=${hmac.digest('hex')}`;
 
   if (!crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(slackSignature))) {
-    throw new Error('Slack signature verification failed.');
+    throw new Error('Verification failed');
   }
 }
 
+// Helper: Create Meet Link
 async function createGoogleMeet(text) {
   const calendarId = process.env.CALENDAR_ID;
-  const rawCreds = process.env.GCP_CREDS_BASE64;
+  const rawCreds = process.env.GCP_CREDS_BASE64; // This is the Raw JSON string
 
-  if (!calendarId || !rawCreds) {
-    throw new Error('Server config error: Missing CALENDAR_ID or GCP_CREDS_BASE64');
-  }
+  if (!calendarId || !rawCreds) throw new Error('Missing config');
 
   let credentials;
   try {
     credentials = JSON.parse(rawCreds);
   } catch (e) {
-    throw new Error('Failed to parse GCP credentials. Check Vercel environment variable.');
+    throw new Error('JSON Parse Error: Check GCP_CREDS_BASE64');
   }
 
-  // Debug log (Safe: only prints email, not the key)
-  console.log(`Authenticating as: ${credentials.client_email}`);
-
+  // --- CRITICAL FIX START ---
+  // Fix newlines if they are escaped
+  if (credentials.private_key && credentials.private_key.includes('\\n')) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+  }
+  
+  // Use GoogleAuth instead of JWT (More robust)
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/calendar.events'],
   });
+  // --- CRITICAL FIX END ---
 
-  const calendar = google.calendar({ version: 'v3', auth });
+  // Get the client
+  const client = await auth.getClient();
+
+  // Create the Calendar API instance using that client
+  const calendar = google.calendar({ version: 'v3', auth: client });
 
   const eventStartTime = new Date();
   const eventEndTime = new Date();
@@ -79,8 +85,6 @@ async function createGoogleMeet(text) {
     },
   };
 
-  console.log(`Attempting to create event on calendar: ${calendarId}`);
-  
   const res = await calendar.events.insert({
     calendarId: calendarId,
     resource: event,
@@ -90,10 +94,9 @@ async function createGoogleMeet(text) {
   return res.data.hangoutLink;
 }
 
+// Main Handler
 export default async (request, response) => {
-  if (request.method !== 'POST') {
-    return response.status(405).send('Method Not Allowed');
-  }
+  if (request.method !== 'POST') return response.status(405).send('Method Not Allowed');
 
   try {
     const rawBody = await getRawBody(request);
@@ -104,36 +107,18 @@ export default async (request, response) => {
 
     const meetLink = await createGoogleMeet(text);
 
-    let messageText = `Here's your new Google Meet link:`;
-    if (text) {
-      messageText = `Here's the Google Meet link for: *${text}*`;
-    }
+    let messageText = text ? `Here's the Google Meet link for: *${text}*` : `Here's your new Google Meet link:`;
 
-    const slackResponse = {
+    return response.status(200).json({
       response_type: 'in_channel',
       blocks: [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: messageText },
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: 'Join Meeting', emoji: true },
-              url: meetLink,
-              style: 'primary',
-            },
-          ],
-        },
+        { type: 'section', text: { type: 'mrkdwn', text: messageText } },
+        { type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: 'Join Meeting', emoji: true }, url: meetLink, style: 'primary' }] },
       ],
-    };
-
-    return response.status(200).json(slackResponse);
+    });
 
   } catch (error) {
-    console.error('Error handling command:', error);
+    console.error('Handler Error:', error);
     return response.status(200).json({
       response_type: 'ephemeral',
       text: `⚠️ Error: ${error.message}`,
