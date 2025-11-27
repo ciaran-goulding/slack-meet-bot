@@ -33,7 +33,7 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// --- HELPER: Fetch Real Name (Using Native 'fetch') ---
+// --- HELPER: Fetch Real Name ---
 async function getSlackName(userId) {
   const token = process.env.SLACK_BOT_TOKEN;
   
@@ -56,12 +56,9 @@ async function getSlackName(userId) {
 
     if (data.ok && data.user) {
       return data.user.profile.real_name;
-    } else {
-      console.error("❌ Slack API Error:", data.error);
-      return null;
     }
   } catch (error) {
-    console.error("❌ Network Error fetching Slack name:", error.message);
+    console.error("❌ Slack Lookup Error:", error.message);
   }
   return null;
 }
@@ -70,35 +67,30 @@ async function createGoogleMeet(text, userId, defaultHandle) {
   let rawTitle;
   let suffix = "";
   
-  // --- LOGIC UPDATE ---
+  // --- 1. DETERMINE TITLE ---
   if (text && text.trim().length > 0) {
-    // Case A: User typed a title. Use it exactly (no random numbers).
     rawTitle = text;
   } else {
-    // Case B: User typed nothing.
-    // We MUST add a random suffix so they don't get stuck in the same room every time.
     const realName = await getSlackName(userId);
     const displayName = realName || defaultHandle;
     
-    // Create a random 4-digit code (e.g., 4821)
+    // Random number to ensure unique room for instant meetings
     const randomCode = Math.floor(1000 + Math.random() * 9000);
     
-    rawTitle = `${displayName}'s meeting`;
-    suffix = `-${randomCode}`; // We will append this to the URL only
+    rawTitle = `${displayName}'s meeting`; // "Ciaran's meeting"
+    suffix = `-${randomCode}`;
   }
 
-  // --- SANITIZE ---
+  // --- 2. SANITIZE URL (UPDATED) ---
   const cleanSlug = rawTitle.toLowerCase()
-    .replace(/['’]s/g, '-s')    
-    .replace(/['’]/g, '')       
-    .replace(/\s+/g, '-')       
-    .replace(/[^a-z0-9-]/g, '') 
-    .replace(/-+/g, '-');       
+    .replace(/['’]/g, '')       // Just delete apostrophes (Ciaran's -> ciarans)
+    .replace(/\s+/g, '-')       // Spaces to hyphens
+    .replace(/[^a-z0-9-]/g, '') // Remove special chars
+    .replace(/-+/g, '-');       // Clean up double hyphens
 
-  // Append suffix (if any) to the URL
   const meetLink = `https://meet.google.com/lookup/${cleanSlug}${suffix}`;
   
-  // --- CALENDAR ---
+  // --- 3. CALENDAR LOGGING ---
   try {
     const calendarId = process.env.CALENDAR_ID;
     const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
@@ -132,7 +124,7 @@ async function createGoogleMeet(text, userId, defaultHandle) {
         await calendar.events.insert({
           calendarId: calendarId,
           resource: {
-            summary: rawTitle, // Calendar shows readable title ("Ciaran's meeting")
+            summary: rawTitle, 
             description: `Meeting created by Slack.\nJoin: ${meetLink}`,
             location: meetLink,
             start: { dateTime: eventStartTime.toISOString(), timeZone: 'UTC' },
