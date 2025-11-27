@@ -171,10 +171,10 @@ async function createGoogleMeet(text, userId, defaultHandle) {
         const client = await auth.getClient();
         const calendar = google.calendar({ version: 'v3', auth: client });
 
-        // Set event duration (1 hour default - purely for calendar visualization)
+        // Set event duration (30 minute default - purely for calendar visualization)
         const eventStartTime = new Date();
         const eventEndTime = new Date();
-        eventEndTime.setMinutes(eventStartTime.getMinutes() + 60);
+        eventEndTime.setMinutes(eventStartTime.getMinutes() + 30);
 
         // Create the event on the "Slack Bot Meetings" calendar
         // NOTE: We do NOT add attendees here. This prevents email spam.

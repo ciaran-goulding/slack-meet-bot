@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant User as Employee (Ciaran)
+    participant Bot as Slack Bot
+    participant GCal as Google Calendar
+    participant Meet as Google Meet
+    participant Drive as Google Drive
+
+    User->>Bot: /googlemeet
+    Bot->>GCal: Create Event (Organizer: Robot)
+    Note right of GCal: Robot owns the event
+    Bot-->>User: Returns Link
+    
+    User->>Meet: Joins Meeting
+    User->>Meet: Clicks "Record" 🔴
+    
+    Note over Meet: Robot is absent.
+    Note over Meet: User initiated recording.
+    
+    User->>Meet: Ends Meeting
+    
+    Meet->>Drive: Process Recording
+    
+    par Delivery
+        Drive->>User: 📧 Emails Recording Link (Because you clicked record)
+        Drive->>Bot: Saves file to Robot's Drive (Backup)
+    end
