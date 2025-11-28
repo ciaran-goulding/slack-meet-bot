@@ -18,7 +18,4 @@
     "url": "https://github.com/ciaran-goulding/C-Users-CiaranGoulding-Desktop-netlify/issues"
   },
   "homepage": "https://github.com/ciaran-goulding/C-Users-CiaranGoulding-Desktop-netlify#readme",
-  "dependencies": {
-    "googleapis": "^164.1.0"
-  }
 }
