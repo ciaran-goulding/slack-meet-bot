@@ -1,11 +1,11 @@
 /**
- * GOOGLE MEET SLACK BOT (SecOps Approved Version)
- * -----------------------------------------------
+ * GOOGLE MEET SLACK BOT (Hybrid Naming Version)
+ * ---------------------------------------------
  * Features:
- * 1. Generates anonymized "Lookup" links (instant-meeting-xxxx).
- * 2. No PII (Personally Identifiable Information) in URLs.
- * 3. No Slack User Data lookup (Zero-Knowledge).
- * 4. Logs audit trail to System Console.
+ * 1. Custom Links: Uses user input if provided (e.g. project-alpha-xxxx).
+ * 2. Instant Links: Defaults to 'instant-meeting-xxxx' if input is empty.
+ * 3. Security: No Slack User Data lookup (Zero permissions required).
+ * 4. Audit: Logs activity to System Console.
  */
 
 import crypto from 'crypto';
@@ -44,22 +44,32 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// --- CORE LOGIC: Generate Anonymized Link ---
-function generateLink(userId) {
-  // REQUIREMENT: All meetings labelled as 'instant-meeting-xxxx'
-  // We use a large random number to ensure no collisions across 8000 users.
-  // Using 9 digits ensures millions of unique combinations.
-  const randomCode = Math.floor(100000000 + Math.random() * 900000000);
-  const slug = `instant-meeting-${randomCode}`;
+// --- CORE LOGIC: Generate Hybrid Link ---
+function generateLink(text, userId) {
+  let baseName = "instant-meeting";
 
-  // The Lookup Link
+  // LOGIC: If user typed something, use it. Otherwise keep default.
+  if (text && text.trim().length > 0) {
+    baseName = text.toLowerCase()
+      .replace(/['’]/g, '')       // Remove apostrophes
+      .replace(/\s+/g, '-')       // Replace spaces with hyphens
+      .replace(/[^a-z0-9-]/g, '') // Remove special chars
+      .replace(/-+/g, '-');       // Cleanup double hyphens
+  }
+
+  // Generate a massive random number (9 digits) to ensure uniqueness
+  // This prevents collision even if two teams type "/meet Project X"
+  const randomCode = Math.floor(100000000 + Math.random() * 900000000);
+  
+  // Format: project-alpha-928374651
+  const slug = `${baseName}-${randomCode}`;
   const meetLink = `https://meet.google.com/lookup/${slug}`;
 
   // --- SECURITY AUDIT LOG ---
-  // We log the User ID (U12345) internally for audit, but not in the URL.
   console.log(JSON.stringify({
     event: "MEETING_CREATED",
     requester_id: userId,
+    input_text: text || "(empty)",
     generated_slug: slug,
     timestamp: new Date().toISOString()
   }));
@@ -77,14 +87,14 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     
-    // Handle Button Clicks (Stop Warning Triangle)
+    // Handle Button Clicks
     if (params.get('payload')) return response.status(200).send('');
 
-    // We no longer need 'text' or 'user_name' for the logic
+    const text = params.get('text');
     const userId = params.get('user_id');
 
-    // Generate the standardized link
-    const meetLink = generateLink(userId);
+    // Generate the link based on user input
+    const meetLink = generateLink(text, userId);
 
     return response.status(200).json({
       response_type: 'in_channel',
