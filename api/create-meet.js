@@ -1,11 +1,11 @@
 /**
- * GOOGLE MEET SLACK BOT (Lightweight Version)
- * -------------------------------------------
+ * GOOGLE MEET SLACK BOT (SecOps Approved Version)
+ * -----------------------------------------------
  * Features:
- * 1. Generates unique "Lookup" links (No Google API required).
- * 2. Fetches user names from Slack for clean URLs.
- * 3. Logs activity to System Console (Stdout) for Security Auditing.
- * 4. Zero Google Credentials required.
+ * 1. Generates anonymized "Lookup" links (instant-meeting-xxxx).
+ * 2. No PII (Personally Identifiable Information) in URLs.
+ * 3. No Slack User Data lookup (Zero-Knowledge).
+ * 4. Logs audit trail to System Console.
  */
 
 import crypto from 'crypto';
@@ -44,61 +44,23 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// --- HELPER: Fetch User's Real Name ---
-async function getSlackName(userId) {
-  const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) return null;
+// --- CORE LOGIC: Generate Anonymized Link ---
+function generateLink(userId) {
+  // REQUIREMENT: All meetings labelled as 'instant-meeting-xxxx'
+  // We use a large random number to ensure no collisions across 8000 users.
+  // Using 9 digits ensures millions of unique combinations.
+  const randomCode = Math.floor(100000000 + Math.random() * 900000000);
+  const slug = `instant-meeting-${randomCode}`;
 
-  try {
-    const params = new URLSearchParams({ user: userId });
-    const response = await fetch(`https://slack.com/api/users.info?${params}`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-
-    const data = await response.json();
-    if (data.ok && data.user) return data.user.profile.real_name;
-  } catch (error) {
-    console.error("Slack Lookup Error:", error.message);
-  }
-  return null;
-}
-
-// --- CORE LOGIC: Generate Link (No API) ---
-async function generateLink(text, userId, defaultHandle) {
-  let rawTitle;
-  let suffix = "";
-  
-  if (text && text.trim().length > 0) {
-    // User typed a title
-    rawTitle = text;
-  } else {
-    // Instant Meeting: Use Name + Random Code
-    const realName = await getSlackName(userId);
-    const displayName = realName || defaultHandle;
-    const randomCode = Math.floor(1000 + Math.random() * 9000);
-    
-    rawTitle = `${displayName}'s meeting`; 
-    suffix = `-${randomCode}`;
-  }
-
-  // Sanitize for URL
-  const cleanSlug = rawTitle.toLowerCase()
-    .replace(/['’]/g, '')       // Remove apostrophes
-    .replace(/\s+/g, '-')       // Spaces to hyphens
-    .replace(/[^a-z0-9-]/g, '') // Remove special chars
-    .replace(/-+/g, '-');       // Cleanup
-
-  const meetLink = `https://meet.google.com/lookup/${cleanSlug}${suffix}`;
+  // The Lookup Link
+  const meetLink = `https://meet.google.com/lookup/${slug}`;
 
   // --- SECURITY AUDIT LOG ---
-  // This prints to Vercel/AWS CloudWatch logs for your SecOps team.
+  // We log the User ID (U12345) internally for audit, but not in the URL.
   console.log(JSON.stringify({
     event: "MEETING_CREATED",
-    user_id: userId,
-    handle: defaultHandle,
-    input_text: text,
-    generated_link: meetLink,
+    requester_id: userId,
+    generated_slug: slug,
     timestamp: new Date().toISOString()
   }));
 
@@ -118,11 +80,11 @@ export default async (request, response) => {
     // Handle Button Clicks (Stop Warning Triangle)
     if (params.get('payload')) return response.status(200).send('');
 
-    const text = params.get('text');
+    // We no longer need 'text' or 'user_name' for the logic
     const userId = params.get('user_id');
-    const handle = params.get('user_name');
 
-    const meetLink = await generateLink(text, userId, handle);
+    // Generate the standardized link
+    const meetLink = generateLink(userId);
 
     return response.status(200).json({
       response_type: 'in_channel',
