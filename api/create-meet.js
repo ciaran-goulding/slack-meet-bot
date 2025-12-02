@@ -1,9 +1,9 @@
 /**
- * GOOGLE MEET SLACK BOT (Stealth Mode)
- * ------------------------------------
- * Update: Now uses 'chat.postMessage' to send the link.
- * This keeps the original "/meet" command PRIVATE (invisible to channel),
- * but the resulting "Join" button PUBLIC.
+ * GOOGLE MEET SLACK BOT (Rollback / Standard Version)
+ * ---------------------------------------------------
+ * - Uses standard "in_channel" response.
+ * - Does NOT require "chat:write" permission (Works without Admin approval).
+ * - Command text (/meet) remains visible in history.
  */
 
 import crypto from 'crypto';
@@ -12,7 +12,6 @@ export const config = {
   api: { bodyParser: false },
 };
 
-// --- HELPER: Read Raw Request Body ---
 async function getRawBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -21,7 +20,6 @@ async function getRawBody(req) {
   return Buffer.concat(chunks).toString();
 }
 
-// --- HELPER: Verify Slack Security Signature ---
 function verifyRequest(headers, rawBody) {
   const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
   const timestamp = headers['x-slack-request-timestamp'];
@@ -42,34 +40,11 @@ function verifyRequest(headers, rawBody) {
   }
 }
 
-// --- HELPER: Post Message to Slack (The Stealth Method) ---
-async function postToSlack(channelId, blocks) {
-  const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) throw new Error("Missing SLACK_BOT_TOKEN");
-
-  const response = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      channel: channelId,
-      blocks: blocks,
-      text: "New Google Meet Link" // Fallback text for notifications
-    })
-  });
-
-  const data = await response.json();
-  if (!data.ok) {
-    console.error("Slack API Error:", data.error);
-  }
-}
-
 // --- LOGIC: Generate Link ---
 function generateLink(text) {
   let baseName = "instant-meeting";
 
+  // Use custom title if provided
   if (text && text.trim().length > 0) {
     baseName = text.toLowerCase()
       .replace(/['’]/g, '')       
@@ -82,7 +57,7 @@ function generateLink(text) {
   const slug = `${baseName}-${randomCode}`;
   const meetLink = `https://meet.google.com/lookup/${slug}`;
 
-  // Log for audit
+  // Audit Log
   console.log(JSON.stringify({
     event: "MEETING_CREATED",
     input_text: text || "(empty)",
@@ -103,45 +78,40 @@ export default async (request, response) => {
 
     const params = new URLSearchParams(rawBody);
     
-    // Handle Button Clicks
+    // Handle Button Clicks (Prevent warning triangle)
     if (params.get('payload')) return response.status(200).send('');
 
     const text = params.get('text');
-    const channelId = params.get('channel_id'); // We need this to know where to post
 
-    // 1. Generate the Link
+    // Generate Link
     const meetLink = generateLink(text);
 
-    // 2. Define the UI Card
-    const blocks = [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "Click below to join:" }
-      },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            text: { type: "plain_text", text: "Join Meeting", emoji: true },
-            url: meetLink,
-            style: "primary",
-            action_id: "join_button"
-          }
-        ]
-      }
-    ];
-
-    // 3. Post the message independently (This keeps the slash command hidden)
-    await postToSlack(channelId, blocks);
-
-    // 4. Return an empty 200 OK to Slack
-    // This tells Slack "Command received, don't show anything to the user."
-    return response.status(200).send('');
+    // Return response directly to Slack
+    // This works purely based on the slash command trigger, no extra permissions needed.
+    return response.status(200).json({
+      response_type: 'in_channel',
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Click below to join:" }
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: { type: "plain_text", text: "Join Meeting", emoji: true },
+              url: meetLink,
+              style: "primary",
+              action_id: "join_button"
+            }
+          ]
+        }
+      ]
+    });
 
   } catch (error) {
     console.error('Handler Error:', error);
-    // If it fails, we send an ephemeral message so the user knows
     return response.status(200).json({
       response_type: 'ephemeral',
       text: `⚠️ Error: ${error.message}`,
